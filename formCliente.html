@@ -1,0 +1,318 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <base target="_top">
+    <style>
+      body { font-family: 'Segoe UI', Arial; padding: 15px; background-color: #f9f9f9; color: #333; }
+      h2 { color: #2c3e50; font-size: 1.2em; border-bottom: 2px solid #3498db; padding-bottom: 5px; }
+      label { display: block; margin-top: 8px; font-weight: bold; font-size: 0.85em; }
+      input, select { width: 100%; padding: 6px; box-sizing: border-box; border: 1px solid #ccc; border-radius: 4px; }
+      .autocomplete-items { position: absolute; border: 1px solid #d4d4d4; z-index: 99; background-color: white; max-height: 150px; overflow-y: auto; width: 100%; box-shadow: 0 4px 8px rgba(0,0,0,0.1); }
+      .autocomplete-items div { padding: 10px; cursor: pointer; border-bottom: 1px solid #eee; }
+      .autocomplete-items div:hover { background-color: #e9e9e9; }
+      .flex-row { display: flex; gap: 10px; }
+      .flex-row div { flex: 1; }
+      button { margin-top: 15px; padding: 10px; font-size: 14px; width: 100%; background-color: #3498db; color: white; border: none; border-radius: 4px; cursor: pointer; font-weight: bold; }
+      button:hover { background-color: #2980b9; }
+      .autocomplete-container { position: relative; }
+      .spese-container { margin-top: 15px; background-color: #ebf5fb; padding: 10px; border: 1px dashed #3498db; border-radius: 4px; }
+      .checkbox-label { display: flex; align-items: center; cursor: pointer; font-weight: bold; color: #2c3e50; margin-top: 0; }
+      .checkbox-label input { width: auto; margin-right: 10px; transform: scale(1.2); }
+    </style>
+  </head>
+  <body>
+    <h2>Inserimento Anagrafica e Pagamenti</h2>
+
+    <div class="autocomplete-container">
+      <label>Nome Completo:</label>
+      <input type="text" id="nomeCompleto" autocomplete="off" placeholder="Inizia a scrivere per cercare...">
+    </div>
+
+    <div class="flex-row">
+      <div>
+        <label>Nome d'Arte:</label>
+        <input type="text" id="nomeArte">
+      </div>
+      <div>
+        <label>Codice Fiscale:</label>
+        <input type="text" id="cf">
+      </div>
+    </div>
+
+    <label>Indirizzo:</label>
+    <input type="text" id="indirizzo">
+
+    <div class="flex-row">
+      <div style="flex: 0.4;">
+        <label>CAP:</label>
+        <input type="text" id="cap">
+      </div>
+      <div>
+        <label>Città:</label>
+        <input type="text" id="citta">
+      </div>
+      <div style="flex: 0.3;">
+        <label>Provincia:</label>
+        <input type="text" id="provincia" maxlength="2">
+      </div>
+    </div>
+
+    <div class="flex-row">
+      <div>
+        <label>Telefono:</label>
+        <input type="text" id="telefono">
+      </div>
+      <div>
+        <label>Email:</label>
+        <input type="email" id="email">
+      </div>
+    </div>
+
+    <div class="flex-row">
+      <div>
+        <label>Curatore:</label>
+        <select id="collaboratore">
+          <option value="">-- Seleziona --</option>
+        </select>
+      </div>
+      <div>
+        <label>Progetto:</label>
+        <select id="progetto">
+          <option value="">-- Seleziona --</option>
+        </select>
+      </div>
+    </div>
+
+    <hr style="margin-top: 15px; border: 0; border-top: 1px solid #ddd;">
+
+    <div class="flex-row">
+      <div>
+        <label>Importo Pattuito (€):</label>
+        <input type="number" id="importo" step="0.01">
+      </div>
+      <div>
+        <label>Data Iscrizione:</label>
+        <input type="date" id="data">
+      </div>
+    </div>
+
+    <div class="flex-row">
+      <div>
+        <label>Prima Donazione (Rata 1):</label>
+        <input type="number" id="rata1" step="0.01">
+      </div>
+      <div>
+        <label>Data Prima Donazione:</label>
+        <input type="date" id="rata1data">
+      </div>
+    </div>
+
+    <div class="spese-container">
+      <label class="checkbox-label">
+        <input type="checkbox" id="spesePagate"> Spese di spedizione già pagate (T1)
+      </label>
+    </div>
+
+    <button id="btnSalva" onclick="salva()">REGISTRA IN CONTABILITÀ E DEPOSITO_T1</button>
+
+    <script>
+      let clientiEsistenti = [];
+      let listaProgetti = []; 
+      let timerCollaboratore; 
+
+      function carica() {
+        const oggi = new Date().toISOString().split('T')[0];
+        document.getElementById('data').value = oggi;
+
+        google.script.run.withSuccessHandler(function(clienti) {
+          clientiEsistenti = clienti;
+          attivaAutocomplete(document.getElementById("nomeCompleto"), clientiEsistenti);
+        }).getClientiEsistenti();
+
+        google.script.run.withSuccessHandler(function(collabs) {
+          const select = document.getElementById('collaboratore');
+          collabs.forEach(c => {
+            const opt = document.createElement('option');
+            opt.value = c; opt.text = c;
+            select.appendChild(opt);
+          });
+        }).getCollaboratori();
+
+        google.script.run.withSuccessHandler(function(progetti) {
+          listaProgetti = progetti;
+          const select = document.getElementById('progetto');
+          progetti.forEach(p => {
+            const opt = document.createElement('option');
+            opt.value = p.nome; opt.text = p.nome;
+            select.appendChild(opt);
+          });
+        }).getProgetti();
+      }
+
+      function resetForm() {
+        const ids = ['nomeCompleto','nomeArte','cf','indirizzo','cap','citta','provincia','telefono','email','importo','rata1','rata1data'];
+        ids.forEach(id => {
+          const el = document.getElementById(id);
+          if (el) el.value = "";
+        });
+        document.getElementById('data').value = new Date().toISOString().split('T')[0];
+        document.getElementById('collaboratore').selectedIndex = 0;
+        document.getElementById('progetto').selectedIndex = 0;
+        document.getElementById('spesePagate').checked = false;
+        
+        const btn = document.getElementById('btnSalva');
+        btn.disabled = false;
+        btn.innerText = "REGISTRA IN CONTABILITÀ E DEPOSITO_T1";
+        document.getElementById('nomeCompleto').focus();
+      }
+
+      document.getElementById("nomeCompleto").addEventListener("blur", function () {
+        const nome = this.value.trim();
+        const cf = document.getElementById("cf").value.trim();
+        if (!nome) return;
+
+        google.script.run.withSuccessHandler(function (dati) {
+          if (!dati) return;
+          document.getElementById("nomeArte").value = dati.nomeArte || "";
+          document.getElementById("cf").value = dati.cf || "";
+          document.getElementById("indirizzo").value = dati.indirizzo || "";
+          document.getElementById("cap").value = dati.cap || "";
+          document.getElementById("citta").value = dati.citta || "";
+          document.getElementById("provincia").value = dati.provincia || "";
+          document.getElementById("telefono").value = dati.telefono || "";
+          document.getElementById("email").value = dati.email || "";
+        }).getDatiCliente(nome);
+
+        google.script.run.withSuccessHandler(function (curatore) {
+          if (curatore) {
+            const procedi = confirm("ATTENZIONE: " + nome + " è già presente in Contabilità (Curatore: " + curatore + "). Vuoi continuare?");
+            if (!procedi) {
+              resetForm();
+              return;
+            }
+          }
+        }).verificaDuplicato(nome, cf);
+      });
+
+      document.getElementById("collaboratore").addEventListener("change", function() {
+        const colScelto = this.value;
+        const nome = document.getElementById("nomeCompleto").value.trim();
+        if (!colScelto || !nome) return;
+
+        clearTimeout(timerCollaboratore);
+
+        timerCollaboratore = setTimeout(function() {
+          google.script.run.withSuccessHandler(function(valoreEU26) {
+            if (!valoreEU26) return;
+            if (valoreEU26.toUpperCase() === "INAFFIDABILE") {
+              const procedi = confirm("🔴 ALLERTA MOROSO: L'artista risulta INAFFIDABILE in EU26. Confermi di voler procedere?");
+              if (!procedi) { resetForm(); return; }
+            } 
+            else if (valoreEU26.toUpperCase() !== colScelto.toUpperCase()) {
+              const procedi = confirm("⚠️ CONFLITTO: In EU26 questo artista è assegnato a " + valoreEU26 + ". Vuoi procedere con " + colScelto + "?");
+              if (!procedi) { resetForm(); return; }
+            }
+          }).verificaEU26(nome);
+        }, 1500); 
+      });
+
+      document.getElementById("progetto").addEventListener("change", function() {
+        const progScelto = this.value;
+        const campoImporto = document.getElementById("importo");
+        const progettoTrovato = listaProgetti.find(p => p.nome === progScelto);
+        if (progettoTrovato && progettoTrovato.prezzo > 0) {
+          campoImporto.value = progettoTrovato.prezzo;
+        }
+      });
+
+      function salva() {
+        const btn = document.getElementById('btnSalva');
+        const nomeInput = document.getElementById('nomeCompleto').value.trim();
+        const cfInput = document.getElementById('cf').value.trim();
+        if (!nomeInput) { alert("Attenzione: Il Nome Completo è obbligatorio!"); return; }
+
+        btn.disabled = true;
+        btn.innerText = "Verifica finale...";
+
+        google.script.run.withSuccessHandler(function(curatore) {
+          if (curatore) {
+            const conferma = confirm("L'artista risulta già presente (Curatore: " + curatore + "). Registrare comunque un nuovo dato?");
+            if (!conferma) { resetForm(); return; }
+          }
+          eseguiInserimento();
+        }).verificaDuplicato(nomeInput, cfInput);
+      }
+
+      function eseguiInserimento() {
+        const btn = document.getElementById('btnSalva');
+        btn.innerText = "Registrazione in corso...";
+
+        const dati = {
+          nomeCompleto: document.getElementById('nomeCompleto').value.trim(),
+          nomeArte: document.getElementById('nomeArte').value.trim(),
+          cf: document.getElementById('cf').value.trim(),
+          indirizzo: document.getElementById('indirizzo').value.trim(),
+          cap: document.getElementById('cap').value.trim(),
+          citta: document.getElementById('citta').value.trim(),
+          provincia: document.getElementById('provincia').value.trim(),
+          telefono: document.getElementById('telefono').value.trim(),
+          email: document.getElementById('email').value.trim(),
+          collaboratore: document.getElementById('collaboratore').value,
+          progetto: document.getElementById('progetto').value,
+          data: document.getElementById('data').value,
+          importo: document.getElementById('importo').value,
+          rata1: document.getElementById('rata1').value,
+          rata1data: document.getElementById('rata1data').value,
+          speseGiaPagate: document.getElementById('spesePagate').checked
+        };
+
+        google.script.run.withSuccessHandler(function() {
+          alert("✅ Registrazione completata con successo!");
+          resetForm();
+        }).withFailureHandler(function(err){
+          alert("Errore durante il salvataggio: " + err);
+          btn.disabled = false;
+          btn.innerText = "REGISTRA IN CONTABILITÀ E DEPOSITO_T1";
+        }).inserisciInContabilita(dati);
+      }
+
+      function attivaAutocomplete(inp, arr) {
+        let currentFocus;
+        inp.addEventListener("input", function () {
+          let val = this.value;
+          closeAllLists();
+          if (!val) return false;
+          currentFocus = -1;
+          const list = document.createElement("DIV");
+          list.setAttribute("id", this.id + "autocomplete-list");
+          list.setAttribute("class", "autocomplete-items");
+          this.parentNode.appendChild(list);
+          arr.forEach(function (item) {
+            if (item.toLowerCase().includes(val.toLowerCase())) {
+              const itemDiv = document.createElement("DIV");
+              itemDiv.innerHTML = "<strong>" + item.substr(0, val.length) + "</strong>" + item.substr(val.length);
+              itemDiv.innerHTML += "<input type='hidden' value='" + item + "'>";
+              itemDiv.addEventListener("click", function () {
+                inp.value = this.getElementsByTagName("input")[0].value;
+                closeAllLists();
+                inp.dispatchEvent(new Event("blur"));
+              });
+              list.appendChild(itemDiv);
+            }
+          });
+        });
+        function closeAllLists(elmnt) {
+          const items = document.getElementsByClassName("autocomplete-items");
+          for (let i = 0; i < items.length; i++) {
+            if (elmnt !== items[i] && elmnt !== inp) {
+              items[i].parentNode.removeChild(items[i]);
+            }
+          }
+        }
+        document.addEventListener("click", function (e) { closeAllLists(e.target); });
+      }
+
+      window.onload = carica;
+    </script>
+  </body>
+</html>
