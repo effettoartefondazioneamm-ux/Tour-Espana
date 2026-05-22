@@ -63,20 +63,21 @@ function onEdit(e) {
       }
     }
 
-    // --- B. AVANZAMENTO TAPPE (Logica Quote Standard) ---
-    const cRata1 = mappaAttuale["ID_RATA1"];
-    const cRata2 = mappaAttuale["ID_RATA2"];
-    const cRata3 = mappaAttuale["ID_RATA3"]; 
-
-    if (colModificata === cRata1 && valoreInserito !== "" && valoreInserito !== "0") {
-      copiaArtistaInTappaSuccessiva(ss, idArtista, "Deposito_T2");
-    }
-    if (colModificata === cRata2 && valoreInserito !== "" && valoreInserito !== "0") {
-      copiaArtistaInTappaSuccessiva(ss, idArtista, "Deposito_T3");
-    }
-    if (colModificata === cRata3 && valoreInserito !== "" && valoreInserito !== "0") {
-      copiaArtistaInTappaSuccessiva(ss, idArtista, "Deposito_T4");
-    }
+    // --- B. TRIGGER PAGAMENTI ANTICIPATI DA CONTABILITÀ ---
+    // CORRETTO: index 0 (Rata1) spinge a T2, index 1 (Rata2) spinge a T3, ecc.
+    const rateContabilita = ["ID_RATA1", "ID_RATA2", "ID_RATA3", "ID_RATA4"];
+    rateContabilita.forEach((rata, index) => {
+      if (colModificata === mappaAttuale[rata]) {
+        const cifraRata = Number(valoreInserito) || 0;
+        if (cifraRata > 0) {
+          const prossimaTappa = index + 2; 
+          if (prossimaTappa <= 4) {
+            const targetDeposito = "Deposito_T" + prossimaTappa;
+            copiaArtistaInTappaSuccessiva(ss, idArtista, targetDeposito);
+          }
+        }
+      }
+    });
   }
 
   // ===========================================================================
@@ -97,12 +98,11 @@ function onEdit(e) {
 }
 
 /**
- * Funzione per copiare l'artista ereditando formule dalla riga 6
+ * Copia l'artista ereditando i dati aggiornati dal deposito precedente e imposta "Book" di default
  */
 function copiaArtistaInTappaSuccessiva(ss, idArtista, foglioDest) {
   const shDest = ss.getSheetByName(foglioDest);
-  const shCont = ss.getSheetByName("Contabilita");
-  if (!shDest || !shCont) return;
+  if (!shDest) return;
 
   const mDest = getMapID(shDest);
   const lastRowDest = shDest.getLastRow();
@@ -113,11 +113,28 @@ function copiaArtistaInTappaSuccessiva(ss, idArtista, foglioDest) {
     if (dataDest.includes(idArtista)) return;
   }
 
-  const mCont = getMapID(shCont);
-  const dataCont = shCont.getDataRange().getValues();
-  let rigaDatiCont = dataCont.find(r => r[mCont["ID_ROW"] - 1] == idArtista);
+  // Determina la sorgente dati: Priorità al foglio Deposito corrente, altrimenti Contabilità
+  const shAttivo = ss.getActiveSheet();
+  const nomeShAttivo = shAttivo.getName();
+  let shSorgente, mSorgente, rigaDatiSorgente;
 
-  if (rigaDatiCont) {
+  if (nomeShAttivo.startsWith("Deposito_T")) {
+    shSorgente = shAttivo;
+    mSorgente = getMapID(shSorgente);
+    const datiSorgente = shSorgente.getDataRange().getValues();
+    rigaDatiSorgente = datiSorgente.find(r => r[mSorgente["ID_ROW"] - 1] == idArtista);
+  }
+
+  // Se non siamo in un deposito o l'artista non è trovato nella sorgente corrente, usiamo la Contabilità
+  if (!rigaDatiSorgente) {
+    shSorgente = ss.getSheetByName("Contabilita");
+    if (!shSorgente) return;
+    mSorgente = getMapID(shSorgente);
+    const datiSorgente = shSorgente.getDataRange().getValues();
+    rigaDatiSorgente = datiSorgente.find(r => r[mSorgente["ID_ROW"] - 1] == idArtista);
+  }
+
+  if (rigaDatiSorgente) {
     const lastCol = shDest.getLastColumn();
     const headersDest = shDest.getRange(1, 1, 1, lastCol).getValues()[0];
     const rigaLibera = getPrimaRigaLibera(shDest);
@@ -133,19 +150,27 @@ function copiaArtistaInTappaSuccessiva(ss, idArtista, foglioDest) {
     headersDest.forEach((h, idx) => {
       let key = h.toString().trim().toUpperCase();
       
+      // BLINDATURA AGGIORNATA: Stato spedizione, logistica, DOVUTO, SPEDITOCUM e NOTE nascono puliti (pari al modello della riga 6)
+      if (key === "ID_STATOSPEDIZIONE" || key === "ID_MODPAG" || key === "ID_SPEDITO" || key === "ID_DATASPEDIZIONE" || key === "ID_DOVUTO" || key === "ID_SPEDITOCUM" || key === "ID_NOTE") {
+        nuovaRiga[idx] = formuleModello[idx] !== "" ? formuleModello[idx] : "";
+      }
       // PRIORITÀ 1: Formule obbligatorie per logica contabile deposito
-      if (key === "ID_VERSATO" || key === "ID_RESTANTE") {
+      else if (key === "ID_VERSATO" || key === "ID_RESTANTE") {
         nuovaRiga[idx] = formuleModello[idx];
       }
       // PRIORITÀ 2: Spese predefinite
       else if (key === "ID_SPESE") {
         nuovaRiga[idx] = 25; 
       } 
-      // PRIORITÀ 3: Eredità dati da Contabilità
-      else if (mCont[key]) {
-        nuovaRiga[idx] = rigaDatiCont[mCont[key] - 1]; 
+      // PRIORITÀ 3: Materiali predefiniti (Nuovo default: Book)
+      else if (key === "ID_MATERIALI") {
+        nuovaRiga[idx] = "Book";
+      }
+      // PRIORITÀ 4: Eredità dati aggiornati dalla sorgente (Deposito precedente o Contabilità)
+      else if (mSorgente[key]) {
+        nuovaRiga[idx] = rigaDatiSorgente[mSorgente[key] - 1]; 
       } 
-      // PRIORITÀ 4: Altre formule presenti nel modello riga 6
+      // PRIORITÀ 5: Altre formule presenti nel modello riga 6
       else if (formuleModello[idx] !== "") {
         nuovaRiga[idx] = formuleModello[idx]; 
       }
@@ -164,7 +189,7 @@ function copiaArtistaInTappaSuccessiva(ss, idArtista, foglioDest) {
 }
 
 /**
- * MODIFICATA: Gestione Logica Spedizione e Ritorno in Contabilità
+ * Gestione Logica Spedizione, Ritorno in Contabilità e Spedizioni Cumulative
  */
 function gestisciLogicaSpedizione(ss, sheet, riga, colModificata, mappa, idArtista, valore) {
   const nomeFoglio = sheet.getName();
@@ -173,6 +198,10 @@ function gestisciLogicaSpedizione(ss, sheet, riga, colModificata, mappa, idArtis
   const cRestanteDep = mappa["ID_RESTANTE"];
   const cSpese = mappa["ID_SPESE"];
   const cDataSped = mappa["ID_DATASPEDIZIONE"];
+  const cSpedito = mappa["ID_SPEDITO"];
+  const cSpeditoCum = mappa["ID_SPEDITOCUM"];
+  const cDovuto = mappa["ID_DOVUTO"];
+  
   const oggi = new Date();
   oggi.setHours(0,0,0,0);
 
@@ -183,6 +212,48 @@ function gestisciLogicaSpedizione(ss, sheet, riga, colModificata, mappa, idArtis
       sheet.getRange(riga, cModPag).setValue("Contrassegno");
       if (valTesto === "Da spedire") sheet.getRange(riga, cDataSped).setValue(oggi);
     }
+  }
+
+  // --- TRIGGER: GESTIONE SPEDIZIONE CUMULATIVA MANUALE ---
+  if (colModificata === cSpeditoCum && valTesto.toUpperCase() === "SI") {
+    if (cSpedito) sheet.getRange(riga, cSpedito).setValue("SI"); 
+    
+    const shCont = ss.getSheetByName("Contabilita");
+    const mCont = getMapID(shCont);
+    const importoRestante = Number(sheet.getRange(riga, cRestanteDep).getValue()) || 0;
+    const importoDovuto = sheet.getRange(riga, cDovuto).getValue() || 0;
+    const testoImporto = (importoDovuto === 0 || importoDovuto === "0") ? "Gratis" : importoDovuto;
+    
+    const datiCont = shCont.getDataRange().getValues();
+    let rigaIdx = datiCont.findIndex(r => r[mCont["ID_ROW"] - 1] == idArtista);
+
+    if (rigaIdx !== -1) {
+      let rigaCont = rigaIdx + 1;
+      const numTappa = nomeFoglio.replace("Deposito_T", "");
+      const colRataTarget = mCont["ID_RATA" + numTappa];
+      const colSpdCntrTarget = mCont["ID_SPDCNTR" + numTappa];
+      const prossimaTappaNum = parseInt(numTappa) + 1;
+      const nomeProssimaTappa = "Deposito_T" + prossimaTappaNum;
+
+      // Scrittura Rata in Contabilità
+      if (colRataTarget) {
+        shCont.getRange(rigaCont, colRataTarget).setValue(importoRestante);
+        const headerRata = shCont.getRange(1, colRataTarget).getValue();
+        const colData = mCont[headerRata + "DATA"];
+        if (colData) shCont.getRange(rigaCont, colData).setValue(oggi);
+      }
+
+      // Scrittura Stato Spedizione in Contabilità con Importo
+      if (colSpdCntrTarget) {
+        shCont.getRange(rigaCont, colSpdCntrTarget).setValue("Spd Cntr " + testoImporto);
+      }
+
+      // Attivazione Cascata Avanzamento Tappa
+      if (prossimaTappaNum <= 4) {
+        copiaArtistaInTappaSuccessiva(ss, idArtista, nomeProssimaTappa);
+      }
+    }
+    return; 
   }
 
   // --- LOGICA DI RITORNO IN CONTABILITÀ AL PAGAMENTO ---
@@ -227,7 +298,6 @@ function gestisciLogicaSpedizione(ss, sheet, riga, colModificata, mappa, idArtis
         if (colData) shCont.getRange(rigaCont, colData).setValue(oggi);
       }
       
-      // NUOVO: Aggiorna Spese Pagate e Spd Cntr in Contabilità
       if (colSpesePagateTarget) shCont.getRange(rigaCont, colSpesePagateTarget).setValue("SI");
       if (colSpdCntrTarget) shCont.getRange(rigaCont, colSpdCntrTarget).setValue("Spd Cntr");
 
@@ -253,7 +323,7 @@ function azzeraSpeseInDeposito(ss, idArtista, nomeFoglioDep) {
 }
 
 /**
- * AGGIORNATA: Sincronizzazione Storica del Ritirato
+ * Sincronizzazione Storica del Ritirato
  */
 function sincronizzaRitiratoGlobale(ss, idArtista, foglioOrigine) {
   const fogliT = ["Deposito_T1", "Deposito_T2", "Deposito_T3", "Deposito_T4"];
@@ -270,11 +340,9 @@ function sincronizzaRitiratoGlobale(ss, idArtista, foglioOrigine) {
     
     for (let i = dati.length - 1; i >= 1; i--) {
       if (dati[i][m["ID_ROW"] - 1] == idArtista) {
-        // Se è un foglio successivo (es. sono in T2 e guardo T3): ELIMINA
         if (fogliT.indexOf(f) > fogliT.indexOf(foglioOrigine) && foglioOrigine !== "Contabilita") {
           sh.deleteRow(i + 1);
         } else {
-          // Se è un foglio precedente o Contabilità ha segnato: Segna sigla storica
           sh.getRange(i + 1, m["ID_NOTE"]).setValue(notaDaScrivere);
         }
       }

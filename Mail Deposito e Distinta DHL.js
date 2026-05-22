@@ -37,8 +37,8 @@ function elaboraEInviaSpedizioni() {
   const datiCont = shCont.getDataRange().getValues(); 
   const oggiPuro = new Date().setHours(0,0,0,0);
 
-  const salutoCreativo = getSalutoCasuale();
-  let corpoMail = "Buongiorno " + salutoCreativo + ", ecco le spedizioni (" + tappaCorrente + ") da effettuare oggi (" + Utilities.formatDate(new Date(), "GMT+1", "dd/MM/yyyy") + "):<br><br><br>";
+  const saludoCreativo = getSalutoCasuale();
+  let corpoMail = "Buongiorno " + saludoCreativo + ", ecco le spedizioni (" + tappaCorrente + ") da effettuare oggi (" + Utilities.formatDate(new Date(), "GMT+1", "dd/MM/yyyy") + "):<br><br><br>";
   
   let contatore = 0;
   let righeDaProcessare = []; 
@@ -69,6 +69,9 @@ function elaboraEInviaSpedizioni() {
       const importo = riga[col["ID_DOVUTO"] - 1] || 0;
       const restanteVal = riga[col["ID_RESTANTE"] - 1] || 0; 
       const testoImporto = (importo === 0 || importo === "0") ? "Gratis" : importo;
+      
+      // IMPLEMENTAZIONE OMAGGIO
+      const valoreOmaggio = (riga[col["ID_OMAGGIO"] - 1] || "").toString().trim().toUpperCase();
 
       let rigaDhl = shDhl.getLastRow() + 1;
       
@@ -91,10 +94,14 @@ function elaboraEInviaSpedizioni() {
       let infoDest = presso !== "" ? "c/o " + presso + "<br>" + indirizzo : indirizzo;
       corpoMail += "<b>" + nome + "</b><br>" + infoDest + "<br>" + citta + " " + cap + " " + prov + "<br>Importo: " + testoImporto + "<br>";
       if (materiale !== "") corpoMail += "Materiale: " + materiale + "<br>";
+      
+      // AGGIUNTA RIGA OMAGGIO NELLA MAIL
+      if (valoreOmaggio === "SI") corpoMail += "<b>Omaggio: SI</b><br>";
+      
       if (noteSpedizione !== "") corpoMail += "Note: " + noteSpedizione + "<br>";
       corpoMail += "<br>---<br><br>"; 
 
-      righeDaProcessare.push({ rigaDeposito: i + 1, idRow: idRowVal, modPag: modPagVal, quota: restanteVal });
+      righeDaProcessare.push({ rigaDeposito: i + 1, idRow: idRowVal, modPag: modPagVal, quota: restanteVal, valoreDovuto: testoImporto });
     }
   }
 
@@ -111,7 +118,8 @@ function elaboraEInviaSpedizioni() {
 
   righeDaProcessare.forEach(item => {
     shAttivo.getRange(item.rigaDeposito, col["ID_SPEDITO"]).setValue("SI");
-    if (item.modPag === "Contrassegno") {
+    
+    if (item.modPag === "Contrassegno" || item.modPag === "Pagato") {
       const numTappa = tappaCorrente.replace("T", "");
       const colSpedContrTappa = "ID_SPDCNTR" + numTappa; 
       const colRataCont = "ID_RATA" + numTappa;
@@ -120,19 +128,22 @@ function elaboraEInviaSpedizioni() {
 
       for (let j = 1; j < datiCont.length; j++) {
         if (datiCont[j][colCont["ID_ROW"] - 1] == item.idRow) {
-          if (colCont[colRataCont]) {
+          
+          // AGGIORNAMENTO RATA IN CONTABILITA - SOLO SE IN CONTRASSEGNO E MAGGIORE DI ZERO
+          if (item.modPag === "Contrassegno" && colCont[colRataCont] && item.quota > 0) {
             shCont.getRange(j + 1, colCont[colRataCont]).setValue(item.quota);
-            
-            // ATTIVAZIONE CASCATA MANUALE (perché setValue non attiva onEdit)
-            if (prossimaTappaNum <= 4) {
-              // Richiama la funzione di copia definita nel modulo Automazioni
-              if (typeof copiaArtistaInTappaSuccessiva === 'function') {
-                copiaArtistaInTappaSuccessiva(ss, item.idRow, nomeProssimaTappa);
-              }
+          }
+          
+          // MODIFICA: La logistica fa scattare l'avanzamento al deposito successivo solo se l'artista non è già inserito
+          if (prossimaTappaNum <= 4) {
+            if (typeof copiaArtistaInTappaSuccessiva === 'function') {
+              copiaArtistaInTappaSuccessiva(ss, item.idRow, nomeProssimaTappa);
             }
           }
-          if (colCont[colSpedContrTappa]) {
-            shCont.getRange(j + 1, colCont[colSpedContrTappa]).setValue("Spd Cntr");
+          
+          // AGGIORNAMENTO STATO SPEDIZIONE - SOLO SE IN CONTRASSEGNO
+          if (item.modPag === "Contrassegno" && colCont[colSpedContrTappa]) {
+            shCont.getRange(j + 1, colCont[colSpedContrTappa]).setValue("Spd Cntr " + item.valoreDovuto);
           }
           break; 
         }
