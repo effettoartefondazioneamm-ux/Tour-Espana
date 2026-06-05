@@ -32,13 +32,18 @@ function onEdit(e) {
     
     // --- GESTIONE MANUALE 650€ ---
     const valoreInserito = e.value ? e.value.toString().trim() : "";
-    if (colModificata === mappaAttuale["ID_IMPORTOPATTUITO"] && valoreInserito === "650") {
+    if ((colModificata === mappaAttuale["ID_IMPORTOPATTUITO"] || colModificata === mappaAttuale["ID_RATA1"]) && valoreInserito === "650") {
       
       // Suddivisione quote in Contabilità (140 + 170x3)
       sheet.getRange(riga, mappaAttuale["ID_RATA1"]).setValue(140);
       sheet.getRange(riga, mappaAttuale["ID_RATA2"]).setValue(170);
       sheet.getRange(riga, mappaAttuale["ID_RATA3"]).setValue(170);
       sheet.getRange(riga, mappaAttuale["ID_RATA4"]).setValue(170);
+      
+      // Inserimento nota Unica Soluzione nel foglio Contabilita
+      if (mappaAttuale["ID_NOTE"]) {
+        sheet.getRange(riga, mappaAttuale["ID_NOTE"]).setValue("Unica Soluzione");
+      }
       
       // Attivazione Tour nei Depositi
       copiaArtistaInTappaSuccessiva(ss, idArtista, "Deposito_T2");

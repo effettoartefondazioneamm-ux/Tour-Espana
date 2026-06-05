@@ -157,6 +157,9 @@ function processaFoglioVeloce(sheet, datiInput, colonneDaCopiare) {
     else if (key === "ID_SPESEPAGATE1" && sheet.getName() === "Contabilita") {
       nuovaRigaValues.push(datiInput.speseGiaPagate ? "SI" : "NO");
     }
+    else if (key === "ID_NOTE" && sheet.getName() === "Contabilita" && parseFloat(datiInput.rata1) === 650) {
+      nuovaRigaValues.push("Unica Soluzione");
+    }
     else if (key === "ID_MATERIALI" && sheet.getName().startsWith("Deposito_T")) {
       nuovaRigaValues.push("Book");
     }
@@ -204,7 +207,10 @@ function mapInputData(key, d) {
     case "ID_RATA4": return is650 ? 170 : "";
 
     case "ID_RATA1DATA": return d.rata1data ? resetToMidnight(new Date(d.rata1data)) : "";
-    case "ID_CAP": return d.cap ? d.cap.toString() : ""; 
+    case "ID_CAP": 
+      if (!d.cap) return "";
+      let capStr = d.cap.toString().trim();
+      return capStr.length < 5 ? capStr.padStart(5, "0") : capStr; 
     default: return null;
   }
 }
@@ -300,8 +306,11 @@ function aggiungiNuovoCliente(d) {
       const headersRicevute = dbRicevute.getRange(1, 1, 1, lastColRicevute).getValues()[0];
       let rigaValoriRicevute = [];
 
-      // Generazione stringa unificata ID_CCP: Cap Città Provincia
-      const strCap = d.cap ? d.cap.toString().trim() : "";
+      // Generazione stringa unificata ID_CCP: Cap Città Provincia con blindatura zeri iniziali
+      let strCap = d.cap ? d.cap.toString().trim() : "";
+      if (strCap && strCap.length < 5) {
+        strCap = strCap.padStart(5, "0");
+      }
       const strCitta = d.citta ? d.citta.toString().trim() : "";
       const strPv = d.provincia ? d.provincia.toString().trim() : "";
       const stringaCcp = [strCap, strCitta, strPv].filter(String).join(" ");
